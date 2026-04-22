@@ -1,0 +1,29 @@
+{
+  "city_defaults": {
+    "default": "unknown",
+    "Springfield": "mixed-use-core",
+    "Oakridge": "residential-low-density"
+  },
+  "component_rules": [
+    {
+      "type": "sublocality_level_1",
+      "name": "Downtown",
+      "district": "mixed-use-core"
+    },
+    {
+      "type": "neighborhood",
+      "name": "Industrial Park",
+      "district": "industrial-zone"
+    },
+    {
+      "type": "neighborhood",
+      "name": "Old Town",
+      "district": "mixed-use-core"
+    },
+    {
+      "type": "sublocality_level_1",
+      "name": "North Suburb",
+      "district": "residential-low-density"
+    }
+  ]
+}

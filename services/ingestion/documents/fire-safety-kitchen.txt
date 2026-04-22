@@ -1,0 +1,10 @@
+title: Fire and Kitchen Safety Code
+section_ref: Sec 8.2.1
+url: https://example.gov/fire/8.2
+effective_date: 2023-09-15
+districts: residential-low-density, mixed-use-core, commercial-employment, industrial-zone
+uses: home-based-food-business, general
+
+Commercial food preparation requires ventilation review, suppression verification,
+and equipment inspection before permit issuance. These controls apply even where
+the use is otherwise conditionally allowed.

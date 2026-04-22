@@ -1,0 +1,12 @@
+Metadata-Version: 2.4
+Name: ibm-zoning-api
+Version: 0.1.0
+Summary: FastAPI backend for IBM zoning assistant
+Requires-Python: >=3.11
+Requires-Dist: fastapi>=0.116.0
+Requires-Dist: uvicorn[standard]>=0.35.0
+Requires-Dist: pydantic>=2.11.0
+Requires-Dist: httpx>=0.28.0
+Provides-Extra: dev
+Requires-Dist: pytest>=8.3.0; extra == "dev"
+Requires-Dist: pytest-mock>=3.14.0; extra == "dev"

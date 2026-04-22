@@ -1,0 +1,14 @@
+{
+  "name": "ibm-zoning-app",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/web",
+    "packages/shared-schema"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev -w @ibm-zoning/web",
+    "build:web": "npm run build -w @ibm-zoning/web",
+    "typecheck:web": "npm run typecheck -w @ibm-zoning/web"
+  }
+}
