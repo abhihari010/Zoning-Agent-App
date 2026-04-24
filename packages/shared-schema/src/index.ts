@@ -25,6 +25,14 @@ export interface AuditEvent {
   createdAt: string;
 }
 
+export interface AgentReport {
+  key: "intent" | "research" | "compliance";
+  label: string;
+  status: "completed" | "needs_clarification" | "warning" | "skipped";
+  headline: string;
+  details: string[];
+}
+
 export interface FeasibilityOutput {
   decision: "likely_allowed" | "conditional" | "restricted" | "unknown";
   confidence: number;
@@ -41,6 +49,7 @@ export interface ChecklistStep {
 export interface AnalyzeResponse {
   status: AnalyzeStatus;
   traceId: string;
+  agents: AgentReport[];
   feasibility: FeasibilityOutput;
   checklist: {
     steps: ChecklistStep[];

@@ -127,11 +127,15 @@ export async function intakeProject(input: {
 
 export async function analyzeProject(
   projectId: string,
+  clarificationAnswers?: Record<string, string>,
 ): Promise<AnalyzeResponse> {
   const response = await fetch(`${API_BASE}/projects/${projectId}/analyze`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ project_id: projectId }),
+    body: JSON.stringify({
+      project_id: projectId,
+      clarification_answers: clarificationAnswers ?? {},
+    }),
   });
 
   if (!response.ok) {
@@ -141,6 +145,13 @@ export async function analyzeProject(
   const payload = (await response.json()) as {
     status: AnalyzeResponse["status"];
     trace_id: string;
+    agents: Array<{
+      key: "intent" | "research" | "compliance";
+      label: string;
+      status: "completed" | "needs_clarification" | "warning" | "skipped";
+      headline: string;
+      details: string[];
+    }>;
     feasibility: AnalyzeResponse["feasibility"];
     checklist: {
       steps: Array<{
@@ -169,6 +180,7 @@ export async function analyzeProject(
   return {
     status: payload.status,
     traceId: payload.trace_id,
+    agents: payload.agents,
     feasibility: payload.feasibility,
     checklist: {
       ...payload.checklist,

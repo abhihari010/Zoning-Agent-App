@@ -115,7 +115,13 @@ def analyze(project_id: UUID, payload: AnalyzeRequest):
         raise HTTPException(status_code=404, detail="Project not found")
 
     store.audit("analysis.started", str(project_id))
-    result = analyze_project(project_description=project.project_description, district=project.district)
+    if payload.clarification_answers:
+        store.audit("analysis.clarifications.received", str(project_id))
+    result = analyze_project(
+        project_description=project.project_description,
+        district=project.district,
+        clarification_answers=payload.clarification_answers,
+    )
     store.save_analysis(AnalysisRecord(project_id=project_id, result=result))
     store.audit(f"analysis.completed.{result.status}", str(project_id))
     return result

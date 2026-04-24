@@ -1,6 +1,21 @@
 # IBM Zoning App
 
-Monorepo scaffold for a zoning feasibility assistant.
+Monorepo for a zoning feasibility assistant that helps a resident or business owner ask, in plain English, whether a project is likely allowed at a property and what permits or reviews come next.
+
+The current build uses a React frontend and a FastAPI backend with a sequential three-agent orchestration flow:
+
+1. `User Intent Agent`: interprets the project description and flags missing details.
+2. `Zoning Research Agent`: retrieves district-relevant municipal source excerpts.
+3. `Compliance & Checklist Agent`: synthesizes the result into a feasibility summary, permit path, warnings, and citations.
+
+The frontend is designed to connect those stages together visibly for the user, including:
+
+- intake form for project description and address
+- progress tracker for each agent stage
+- clarification modal when the intent stage needs more information
+- feasibility dashboard with citations and warnings
+- downloadable permit checklist
+- prominent legal disclaimer
 
 ## Structure
 
@@ -66,6 +81,7 @@ Analysis behavior:
 
 - If `WATSONX_ENABLED=true`, analysis attempts watsonx model inference.
 - If watsonx call fails, backend falls back to deterministic analysis and records a warning.
+- `POST /api/v1/projects/{project_id}/analyze` also accepts `clarification_answers`, allowing the frontend to pause for follow-up questions and re-run the orchestration with added user detail.
 
 Run backend tests:
 

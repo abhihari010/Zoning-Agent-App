@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 
 AnalyzeStatus = Literal["success", "needs_clarification", "low_confidence", "error"]
 DecisionType = Literal["likely_allowed", "conditional", "restricted", "unknown"]
+AgentKey = Literal["intent", "research", "compliance"]
+AgentStatus = Literal["completed", "needs_clarification", "warning", "skipped"]
 
 
 class SessionCreateResponse(BaseModel):
@@ -97,9 +99,18 @@ class Checklist(BaseModel):
     departments: list[str]
 
 
+class AgentReport(BaseModel):
+    key: AgentKey
+    label: str
+    status: AgentStatus
+    headline: str
+    details: list[str] = Field(default_factory=list)
+
+
 class AnalyzeResult(BaseModel):
     status: AnalyzeStatus
     trace_id: str
+    agents: list[AgentReport] = Field(default_factory=list)
     feasibility: Feasibility
     checklist: Checklist
     citations: list[SourceCitation]
@@ -116,6 +127,7 @@ class AuditEvent(BaseModel):
 
 class AnalyzeRequest(BaseModel):
     project_id: UUID
+    clarification_answers: dict[str, str] = Field(default_factory=dict)
 
 
 class FeedbackRequest(BaseModel):

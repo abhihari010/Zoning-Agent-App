@@ -12,7 +12,15 @@ from uuid import uuid4
 import httpx
 
 from app.district_mapping import map_district_from_components
-from app.models import AnalyzeResult, Checklist, ChecklistStep, Feasibility, SourceCitation, SourceRegistryEntry
+from app.models import (
+    AgentReport,
+    AnalyzeResult,
+    Checklist,
+    ChecklistStep,
+    Feasibility,
+    SourceCitation,
+    SourceRegistryEntry,
+)
 from app.storage import store
 from app.watsonx_client import generate_watsonx_analysis, is_watsonx_enabled
 
@@ -30,6 +38,8 @@ DISCLAIMER_TEXT = [
 class IntentExtraction:
     missing_fields: list[str]
     inferred_use: str
+    user_intent: str
+    project_category: str
 
 
 @dataclass
@@ -273,9 +283,24 @@ def extract_intent(project_description: str) -> IntentExtraction:
     lower = project_description.lower()
     missing_fields: list[str] = []
     inferred_use = "general"
+    user_intent = "review whether the proposed project is allowed on the property"
+    project_category = "general-project"
 
     if "garage" in lower and "bakery" in lower:
         inferred_use = "home-based-food-business"
+        user_intent = "open a bakery from an attached garage conversion"
+        project_category = "home-business"
+    elif "bakery" in lower:
+        inferred_use = "food-business"
+        user_intent = "open a bakery on the property"
+        project_category = "business-opening"
+    elif "restaurant" in lower or "cafe" in lower:
+        inferred_use = "food-service"
+        user_intent = "open a food service business on the property"
+        project_category = "business-opening"
+    elif "addition" in lower or "build" in lower or "construction" in lower:
+        user_intent = "confirm whether the proposed construction is allowed"
+        project_category = "construction"
 
     if "hours" not in lower:
         missing_fields.append("operating hours")
@@ -284,7 +309,15 @@ def extract_intent(project_description: str) -> IntentExtraction:
     if "renovation" not in lower and "construction" not in lower:
         missing_fields.append("construction scope")
 
-    return IntentExtraction(missing_fields=missing_fields, inferred_use=inferred_use)
+    if len(lower.split()) < 8:
+        missing_fields.insert(0, "project scope and intended use")
+
+    return IntentExtraction(
+        missing_fields=list(dict.fromkeys(missing_fields)),
+        inferred_use=inferred_use,
+        user_intent=user_intent,
+        project_category=project_category,
+    )
 
 
 def retrieve_zoning_context(district: str, inferred_use: str) -> list[SourceCitation]:
@@ -310,16 +343,6 @@ def retrieve_zoning_context(district: str, inferred_use: str) -> list[SourceCita
             )
         )
 
-    if not hits:
-        return [
-            SourceCitation(
-                source_id="fallback-guidance",
-                title="Fallback Guidance",
-                excerpt="No matching zoning references were found for the selected district and use.",
-                section_ref="N/A",
-            )
-        ]
-
     return hits[:5]
 
 
@@ -327,7 +350,9 @@ def _confidence_score(missing_fields: list[str], citations: list[SourceCitation]
     base = 0.82
     coverage_penalty = min(0.35, 0.07 * len(missing_fields))
     citation_bonus = min(0.15, 0.05 * len(citations))
+    retrieval_penalty = 0.28 if not citations else 0
     score = base - coverage_penalty + citation_bonus
+    score -= retrieval_penalty
     return max(0.1, min(0.98, score))
 
 
@@ -342,22 +367,53 @@ def _deterministic_feasibility(project_description: str, district: str) -> tuple
     return "likely_allowed", "Proposed use appears likely allowed, subject to standard permit review."
 
 
-def analyze_project(project_description: str, district: str) -> AnalyzeResult:
-    intent = extract_intent(project_description)
+def _merge_project_context(
+    project_description: str,
+    clarification_answers: dict[str, str] | None = None,
+) -> str:
+    answers = clarification_answers or {}
+    usable_answers = [(question.strip(), answer.strip()) for question, answer in answers.items() if answer.strip()]
+    if not usable_answers:
+        return project_description
+
+    clarification_lines = "\n".join(f"- {question}: {answer}" for question, answer in usable_answers)
+    return f"{project_description}\n\nClarifications:\n{clarification_lines}"
+
+
+def analyze_project(
+    project_description: str,
+    district: str,
+    clarification_answers: dict[str, str] | None = None,
+) -> AnalyzeResult:
+    combined_description = _merge_project_context(project_description, clarification_answers)
+    intent = extract_intent(combined_description)
     citations = retrieve_zoning_context(district=district, inferred_use=intent.inferred_use)
     confidence = _confidence_score(intent.missing_fields, citations)
 
-    decision, summary = _deterministic_feasibility(project_description, district)
+    decision, summary = _deterministic_feasibility(combined_description, district)
 
     status = "success"
     warnings: list[str] = []
     follow_up: list[str] = []
     permits_override: list[str] = []
+    agent_reports: list[AgentReport] = [
+        AgentReport(
+            key="intent",
+            label="User Intent Agent",
+            status="completed",
+            headline=f"Captured a {intent.project_category} request to {intent.user_intent}.",
+            details=[
+                f"Project category: {intent.project_category}",
+                f"Inferred use: {intent.inferred_use}",
+                f"District context: {district}",
+            ],
+        )
+    ]
 
     if is_watsonx_enabled():
         try:
             model_output = generate_watsonx_analysis(
-                project_description=project_description,
+                project_description=combined_description,
                 district=district,
                 citation_excerpts=[citation.excerpt for citation in citations],
                 missing_fields=intent.missing_fields,
@@ -372,47 +428,132 @@ def analyze_project(project_description: str, district: str) -> AnalyzeResult:
         except Exception as exc:
             warnings.append(f"watsonx fallback engaged: {exc}")
 
+    if citations:
+        agent_reports.append(
+            AgentReport(
+                key="research",
+                label="Zoning Research Agent",
+                status="completed",
+                headline=f"Retrieved {len(citations)} relevant zoning source excerpts for review.",
+                details=[
+                    f"District searched: {district}",
+                    f"Use searched: {intent.inferred_use}",
+                    *[f"{citation.title} ({citation.section_ref})" for citation in citations[:3]],
+                ],
+            )
+        )
+    else:
+        agent_reports.append(
+            AgentReport(
+                key="research",
+                label="Zoning Research Agent",
+                status="warning",
+                headline="No relevant municipal ordinances were found in the current source registry.",
+                details=[
+                    "The system could not retrieve matching zoning text for this district and use.",
+                    "A human review with the planning department is recommended before acting.",
+                ],
+            )
+        )
+        decision = "unknown"
+        summary = (
+            "We could not find enough source material for this district and project type to make a reliable zoning call."
+        )
+        warnings.append(
+            "No relevant ordinances were found in the current zoning source registry. Please contact the planning office."
+        )
+
     if intent.missing_fields:
         status = "needs_clarification"
         follow_up.extend([f"Please provide {field}." for field in intent.missing_fields])
+        agent_reports[0].status = "needs_clarification"
+        agent_reports[0].headline = "The project brief needs a few more details before the zoning call is reliable."
+        agent_reports[0].details.extend([f"Missing: {field}" for field in intent.missing_fields])
 
-    if confidence < 0.6:
-        status = "low_confidence"
+    if confidence < 0.6 or not citations or district == "unknown":
+        if status != "needs_clarification":
+            status = "low_confidence"
         warnings.append("Confidence is low due to incomplete evidence or conflicting context.")
+        warnings.append("Human-in-the-loop fallback: verify the parcel directly with the zoning or planning office.")
 
-    checklist_steps = [
-        ChecklistStep(
-            order=1,
-            action="Request zoning verification letter for the parcel",
-            required_docs=["site plan", "property ownership proof"],
-            department="Planning Department",
-        ),
-        ChecklistStep(
-            order=2,
-            action="Submit change-of-use permit application",
-            required_docs=["business description", "floor plan", "parking plan"],
-            department="Permit Office",
-        ),
-        ChecklistStep(
-            order=3,
-            action="Complete fire and health compliance inspections",
-            required_docs=["equipment specification", "ventilation design"],
-            department="Fire Marshal and Health Department",
-        ),
-    ]
+    if not citations:
+        checklist_steps = [
+            ChecklistStep(
+                order=1,
+                action="Contact the planning department for parcel-level zoning verification",
+                required_docs=["property address", "parcel number if available", "project description"],
+                department="Planning Department",
+            ),
+            ChecklistStep(
+                order=2,
+                action="Request the current zoning district, permitted use table, and recent amendments",
+                required_docs=["written zoning inquiry", "site sketch if available"],
+                department="Planning Department",
+            ),
+            ChecklistStep(
+                order=3,
+                action="Confirm permit sequencing before spending on design or construction",
+                required_docs=["draft floor plan", "business operations summary"],
+                department="Permit Office",
+            ),
+        ]
+    else:
+        checklist_steps = [
+            ChecklistStep(
+                order=1,
+                action="Request zoning verification letter for the parcel",
+                required_docs=["site plan", "property ownership proof"],
+                department="Planning Department",
+            ),
+            ChecklistStep(
+                order=2,
+                action="Submit change-of-use permit application",
+                required_docs=["business description", "floor plan", "parking plan"],
+                department="Permit Office",
+            ),
+            ChecklistStep(
+                order=3,
+                action="Complete fire and health compliance inspections",
+                required_docs=["equipment specification", "ventilation design"],
+                department="Fire Marshal and Health Department",
+            ),
+        ]
 
     checklist = Checklist(
         steps=checklist_steps,
-        permits=permits_override or ["Change-of-Use Permit", "Business License", "Health Permit"],
-        documents=["Site Plan", "Floor Plan", "Parking Plan", "Fire Safety Plan"],
-        departments=["Planning", "Permitting", "Fire", "Health"],
+        permits=permits_override
+        or (
+            ["Zoning Verification Request", "Planning Counter Review"]
+            if not citations
+            else ["Change-of-Use Permit", "Business License", "Health Permit"]
+        ),
+        documents=(
+            ["Property Address", "Project Narrative", "Parcel Number", "Site Sketch"]
+            if not citations
+            else ["Site Plan", "Floor Plan", "Parking Plan", "Fire Safety Plan"]
+        ),
+        departments=["Planning", "Permitting", "Fire", "Health"] if citations else ["Planning", "Permitting"],
     )
 
     deduped_follow_up = list(dict.fromkeys(follow_up))
+    agent_reports.append(
+        AgentReport(
+            key="compliance",
+            label="Compliance & Checklist Agent",
+            status="warning" if status == "low_confidence" else ("needs_clarification" if status == "needs_clarification" else "completed"),
+            headline=summary,
+            details=[
+                f"Decision: {decision}",
+                f"Confidence: {confidence:.2f}",
+                f"Checklist steps: {len(checklist.steps)}",
+            ],
+        )
+    )
 
     return AnalyzeResult(
         status=status,
         trace_id=f"trace-{uuid4()}",
+        agents=agent_reports,
         feasibility=Feasibility(decision=decision, confidence=confidence, summary=summary),
         checklist=checklist,
         citations=citations,
