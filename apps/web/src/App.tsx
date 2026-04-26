@@ -409,7 +409,7 @@ export function App() {
       if (intakeResult.status !== "created") {
         setPhase("error");
         setError(
-          "We need a more complete property address before the zoning agents can continue.",
+          "This tool only supports addresses in Blacksburg, VA. Please enter a valid Blacksburg street address.",
         );
         return;
       }
@@ -682,7 +682,7 @@ export function App() {
                     value={address}
                     onChange={(event) => setAddress(event.target.value)}
                     onKeyDown={onAddressKeyDown}
-                    placeholder="123 Main St, Springfield"
+                    placeholder="123 Main St, Blacksburg, VA"
                     autoComplete="off"
                   />
                 </div>
