@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 
 WATSONX_API_VERSION = "2023-05-29"
+UTILITY_TOOLS_API_VERSION = "2024-05-01"
 
 
 def is_watsonx_enabled() -> bool:
@@ -25,11 +26,13 @@ def _watsonx_timeout() -> float:
 
 
 def _get_iam_token(api_key: str, timeout_seconds: float) -> str:
+    # IBM displays keys as "ApiKey-<value>" — IAM endpoint wants only the value part
+    clean_key = api_key.removeprefix("ApiKey-")
     response = httpx.post(
         "https://iam.cloud.ibm.com/identity/token",
         data={
             "grant_type": "urn:ibm:params:oauth:grant-type:apikey",
-            "apikey": api_key,
+            "apikey": clean_key,
         },
         headers={"Content-Type": "application/x-www-form-urlencoded"},
         timeout=timeout_seconds,
@@ -56,6 +59,70 @@ def _extract_first_json(text: str) -> dict[str, Any]:
     raise ValueError("No JSON object found in watsonx output.")
 
 
+def search_ordinances(query: str) -> list[dict[str, str]]:
+    """Query the Blacksburg VA Code of Ordinances vector index and return relevant passages."""
+    api_key = _required_env("WATSONX_API_KEY")
+    platform_url = os.getenv("WATSONX_PLATFORM_URL", "https://api.dataplatform.cloud.ibm.com").rstrip("/")
+    project_id = _required_env("WATSONX_PROJECT_ID")
+    vector_index_id = _required_env("WATSONX_VECTOR_INDEX_ID")
+    timeout_seconds = _watsonx_timeout()
+
+    token = _get_iam_token(api_key=api_key, timeout_seconds=timeout_seconds)
+
+    response = httpx.post(
+        f"{platform_url}/wx/v1-beta/utility_agent_tools/run",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "tool_name": "RAGQuery",
+            "input": query,
+            "config": {
+                "vectorIndexId": vector_index_id,
+                "projectId": project_id,
+            },
+        },
+        timeout=timeout_seconds,
+    )
+    response.raise_for_status()
+    payload = response.json()
+
+    raw_output = payload.get("output", "")
+
+    try:
+        parsed = json.loads(raw_output) if isinstance(raw_output, str) else raw_output
+    except json.JSONDecodeError:
+        parsed = raw_output
+
+    # Normalise to a list of passage dicts with at least a "text" key
+    if isinstance(parsed, list):
+        passages = []
+        for item in parsed:
+            if isinstance(item, dict):
+                passages.append(item)
+            elif isinstance(item, str):
+                passages.append({"text": item})
+        return passages
+
+    if isinstance(parsed, dict):
+        results = parsed.get("results") or parsed.get("passages") or parsed.get("documents") or []
+        if results:
+            return [
+                item if isinstance(item, dict) else {"text": str(item)}
+                for item in results
+            ]
+        # Single result wrapped in a dict
+        text = parsed.get("text") or parsed.get("content") or str(parsed)
+        return [{"text": text}]
+
+    # Plain text fallback
+    if isinstance(raw_output, str) and raw_output.strip():
+        return [{"text": raw_output.strip()}]
+
+    return []
+
+
 def generate_watsonx_analysis(
     *,
     project_description: str,
@@ -71,19 +138,32 @@ def generate_watsonx_analysis(
 
     token = _get_iam_token(api_key=api_key, timeout_seconds=timeout_seconds)
 
-    prompt = (
-        "You are a zoning assistant. Produce only JSON with keys: "
-        "decision, summary, required_permits, follow_up_questions, warnings. "
-        "decision must be one of likely_allowed, conditional, restricted, unknown.\n\n"
+    citations_block = (
+        "\n".join(f"- {excerpt}" for excerpt in citation_excerpts[:5])
+        if citation_excerpts
+        else "No ordinance excerpts were retrieved."
+    )
+
+    system_prompt = (
+        "You are a zoning compliance assistant for Blacksburg, VA. "
+        "Analyse the project against the provided ordinance excerpts. "
+        "Respond ONLY with a valid JSON object containing exactly these keys: "
+        "decision (one of: likely_allowed, conditional, restricted, unknown), "
+        "summary (2-3 sentence plain-language feasibility summary), "
+        "required_permits (array of strings), "
+        "follow_up_questions (array of strings), "
+        "warnings (array of strings)."
+    )
+
+    user_content = (
         f"District: {district}\n"
         f"Project: {project_description}\n"
-        f"Missing fields: {', '.join(missing_fields) if missing_fields else 'none'}\n"
-        "Citations:\n"
-        + "\n".join(f"- {excerpt}" for excerpt in citation_excerpts[:5])
+        f"Missing information: {', '.join(missing_fields) if missing_fields else 'none'}\n\n"
+        f"Relevant Blacksburg ordinance excerpts:\n{citations_block}"
     )
 
     response = httpx.post(
-        f"{watsonx_url}/ml/v1/text/generation",
+        f"{watsonx_url}/ml/v1/text/chat",
         params={"version": WATSONX_API_VERSION},
         headers={
             "Authorization": f"Bearer {token}",
@@ -92,10 +172,13 @@ def generate_watsonx_analysis(
         json={
             "model_id": model_id,
             "project_id": project_id,
-            "input": prompt,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_content},
+            ],
             "parameters": {
                 "decoding_method": "greedy",
-                "max_new_tokens": 500,
+                "max_new_tokens": 600,
                 "min_new_tokens": 80,
             },
         },
@@ -105,12 +188,19 @@ def generate_watsonx_analysis(
     payload = response.json()
 
     generated_text = ""
-    results = payload.get("results", [])
-    if results and isinstance(results[0], dict):
-        generated_text = str(results[0].get("generated_text", "")).strip()
+    choices = payload.get("choices", [])
+    if choices and isinstance(choices[0], dict):
+        message = choices[0].get("message", {})
+        generated_text = str(message.get("content", "")).strip()
+
+    # Fallback to results format (text/generation style)
+    if not generated_text:
+        results = payload.get("results", [])
+        if results and isinstance(results[0], dict):
+            generated_text = str(results[0].get("generated_text", "")).strip()
 
     if not generated_text:
-        raise ValueError("watsonx response did not include generated_text.")
+        raise ValueError("watsonx response did not include generated text.")
 
     parsed = _extract_first_json(generated_text)
 

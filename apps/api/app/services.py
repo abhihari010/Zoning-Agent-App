@@ -22,7 +22,7 @@ from app.models import (
     SourceRegistryEntry,
 )
 from app.storage import store
-from app.watsonx_client import generate_watsonx_analysis, is_watsonx_enabled
+from app.watsonx_client import generate_watsonx_analysis, is_watsonx_enabled, search_ordinances
 
 
 SOURCE_REGISTRY_PATH = Path(__file__).resolve().parent / "data" / "source_registry.json"
@@ -127,7 +127,7 @@ def _google_find_place(address: str, api_key: str, timeout_seconds: float) -> di
     params = {
         "input": address,
         "inputtype": "textquery",
-        "fields": "place_id,formatted_address,geometry,address_components,types,name",
+        "fields": "place_id,formatted_address,geometry,name",
         "key": api_key,
     }
     response = httpx.get(
@@ -178,9 +178,14 @@ def suggest_addresses(query: str, session_token: str | None = None) -> list[str]
         raise RuntimeError("GOOGLE_MAPS_API_KEY is not configured.")
 
     timeout_seconds = float(os.getenv("GOOGLE_MAPS_TIMEOUT_SECONDS", "8"))
+    # Bias toward Blacksburg, VA (37.2296, -80.4139) within a 6 km radius
     params = {
         "input": trimmed,
         "types": "address",
+        "location": "37.2296,-80.4139",
+        "radius": "6000",
+        "strictbounds": "true",
+        "components": "country:US",
         "key": api_key,
     }
     if session_token:
@@ -247,6 +252,22 @@ def normalize_address(address: str) -> AddressNormalizationResult:
         or (geocode_result or {}).get("formatted_address")
         or cleaned_input
     )
+
+    # Restrict to Blacksburg, VA only
+    address_upper = formatted_address.upper()
+    if "BLACKSBURG" not in address_upper or (
+        ", VA " not in formatted_address and ", Virginia" not in formatted_address
+    ):
+        return AddressNormalizationResult(
+            normalized_address=formatted_address,
+            district="unknown",
+            place_id=None,
+            latitude=None,
+            longitude=None,
+            is_valid=False,
+            warnings=["This tool only supports addresses in Blacksburg, VA."],
+        )
+
     place_id = (place_candidate or {}).get("place_id") or (geocode_result or {}).get("place_id")
 
     geometry = (place_candidate or {}).get("geometry") or (geocode_result or {}).get("geometry") or {}
@@ -320,18 +341,39 @@ def extract_intent(project_description: str) -> IntentExtraction:
     )
 
 
-def retrieve_zoning_context(district: str, inferred_use: str) -> list[SourceCitation]:
+def retrieve_zoning_context(
+    district: str,
+    inferred_use: str,
+    project_description: str = "",
+) -> list[SourceCitation]:
+    if is_watsonx_enabled():
+        query = f"{inferred_use} {district} {project_description}".strip()
+        passages = search_ordinances(query)
+        citations: list[SourceCitation] = []
+        for i, passage in enumerate(passages[:5]):
+            text = passage.get("text") or passage.get("content") or passage.get("excerpt") or str(passage)
+            title = passage.get("title") or passage.get("document_title") or "Blacksburg Code of Ordinances"
+            section = passage.get("section_ref") or passage.get("section") or passage.get("chunk_id") or f"Sec {i + 1}"
+            source_id = passage.get("source_id") or passage.get("id") or f"blacksburg-ordinance-{i + 1}"
+            url = passage.get("url") or None
+            citations.append(
+                SourceCitation(
+                    source_id=str(source_id),
+                    title=str(title),
+                    excerpt=str(text),
+                    section_ref=str(section),
+                    url=url,
+                )
+            )
+        return citations
+
     ensure_seed_sources()
     hits: list[SourceCitation] = []
     for source in store.list_sources():
-        districts = source.districts
-        uses = source.uses
-
-        district_ok = district in districts or "*" in districts or district == "unknown"
-        use_ok = inferred_use in uses or "general" in uses
+        district_ok = district in source.districts or "*" in source.districts or district == "unknown"
+        use_ok = inferred_use in source.uses or "general" in source.uses
         if not district_ok or not use_ok:
             continue
-
         hits.append(
             SourceCitation(
                 source_id=source.source_id,
@@ -342,7 +384,6 @@ def retrieve_zoning_context(district: str, inferred_use: str) -> list[SourceCita
                 effective_date=source.effective_date,
             )
         )
-
     return hits[:5]
 
 
@@ -387,7 +428,11 @@ def analyze_project(
 ) -> AnalyzeResult:
     combined_description = _merge_project_context(project_description, clarification_answers)
     intent = extract_intent(combined_description)
-    citations = retrieve_zoning_context(district=district, inferred_use=intent.inferred_use)
+    citations = retrieve_zoning_context(
+        district=district,
+        inferred_use=intent.inferred_use,
+        project_description=combined_description,
+    )
     confidence = _confidence_score(intent.missing_fields, citations)
 
     decision, summary = _deterministic_feasibility(combined_description, district)
