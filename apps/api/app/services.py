@@ -421,6 +421,60 @@ def _merge_project_context(
     return f"{project_description}\n\nClarifications:\n{clarification_lines}"
 
 
+def _normalize_follow_up_key(question: str) -> str:
+    normalized = re.sub(r"[^a-z0-9]+", " ", question.lower()).strip()
+    tokens = set(normalized.split())
+
+    if "hours" in tokens:
+        return "operating hours"
+    if "employee" in tokens or "employees" in tokens or "workers" in tokens:
+        return "number of employees"
+    if ("construction" in tokens or "renovation" in tokens or "renovations" in tokens) and (
+        "scope" in tokens or "planned" in tokens or "modifications" in tokens
+    ):
+        return "construction scope"
+    if "noise" in tokens or ("surrounding" in tokens and "residential" in tokens):
+        return "noise and neighborhood impact"
+    if "parking" in tokens:
+        return "parking"
+    if "lot" in tokens and "size" in tokens:
+        return "lot size"
+    return normalized
+
+
+def _dedupe_follow_up_questions(questions: list[str]) -> list[str]:
+    best_by_key: dict[str, str] = {}
+
+    for question in questions:
+        cleaned = " ".join(question.split()).strip()
+        if not cleaned:
+            continue
+
+        key = _normalize_follow_up_key(cleaned)
+        existing = best_by_key.get(key)
+        if existing is None:
+            best_by_key[key] = cleaned
+            continue
+
+        existing_generic = existing.lower().startswith("please provide ")
+        cleaned_generic = cleaned.lower().startswith("please provide ")
+        if existing_generic and not cleaned_generic:
+            best_by_key[key] = cleaned
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for question in questions:
+        cleaned = " ".join(question.split()).strip()
+        if not cleaned:
+            continue
+        key = _normalize_follow_up_key(cleaned)
+        chosen = best_by_key[key]
+        if chosen not in seen:
+            ordered.append(chosen)
+            seen.add(chosen)
+    return ordered
+
+
 def analyze_project(
     project_description: str,
     district: str,
@@ -428,14 +482,26 @@ def analyze_project(
 ) -> AnalyzeResult:
     combined_description = _merge_project_context(project_description, clarification_answers)
     intent = extract_intent(combined_description)
-    citations = retrieve_zoning_context(
-        district=district,
-        inferred_use=intent.inferred_use,
-        project_description=combined_description,
-    )
+    watsonx_active = is_watsonx_enabled()
+    retrieval_error: str | None = None
+    try:
+        citations = retrieve_zoning_context(
+            district=district,
+            inferred_use=intent.inferred_use,
+            project_description=combined_description,
+        )
+    except Exception as exc:
+        citations = []
+        retrieval_error = str(exc)
+
     confidence = _confidence_score(intent.missing_fields, citations)
 
     decision, summary = _deterministic_feasibility(combined_description, district)
+    if watsonx_active:
+        decision = "unknown"
+        summary = (
+            "Waiting on watsonx ordinance retrieval and compliance reasoning before making a zoning call."
+        )
 
     status = "success"
     warnings: list[str] = []
@@ -455,7 +521,13 @@ def analyze_project(
         )
     ]
 
-    if is_watsonx_enabled():
+    if retrieval_error:
+        if watsonx_active:
+            warnings.append(f"watsonx retrieval failed: {retrieval_error}")
+        else:
+            warnings.append(f"Local source retrieval failed: {retrieval_error}")
+
+    if watsonx_active:
         try:
             model_output = generate_watsonx_analysis(
                 project_description=combined_description,
@@ -471,7 +543,8 @@ def analyze_project(
             follow_up.extend([str(item) for item in model_output.get("follow_up_questions", [])])
             warnings.extend([str(item) for item in model_output.get("warnings", [])])
         except Exception as exc:
-            warnings.append(f"watsonx fallback engaged: {exc}")
+            warnings.append(f"watsonx analysis fallback engaged: {exc}")
+            decision, summary = _deterministic_feasibility(combined_description, district)
 
     if citations:
         agent_reports.append(
@@ -479,7 +552,11 @@ def analyze_project(
                 key="research",
                 label="Zoning Research Agent",
                 status="completed",
-                headline=f"Retrieved {len(citations)} relevant zoning source excerpts for review.",
+                headline=(
+                    f"Retrieved {len(citations)} ordinance passages from the watsonx knowledge index."
+                    if watsonx_active
+                    else f"Retrieved {len(citations)} relevant zoning source excerpts for review."
+                ),
                 details=[
                     f"District searched: {district}",
                     f"Use searched: {intent.inferred_use}",
@@ -493,9 +570,17 @@ def analyze_project(
                 key="research",
                 label="Zoning Research Agent",
                 status="warning",
-                headline="No relevant municipal ordinances were found in the current source registry.",
+                headline=(
+                    "watsonx retrieval did not return matching Blacksburg ordinance passages for this request."
+                    if watsonx_active
+                    else "No relevant municipal ordinances were found in the current source registry."
+                ),
                 details=[
-                    "The system could not retrieve matching zoning text for this district and use.",
+                    (
+                        "The watsonx ordinance index did not return enough zoning text for this district and use."
+                        if watsonx_active
+                        else "The system could not retrieve matching zoning text for this district and use."
+                    ),
                     "A human review with the planning department is recommended before acting.",
                 ],
             )
@@ -505,7 +590,11 @@ def analyze_project(
             "We could not find enough source material for this district and project type to make a reliable zoning call."
         )
         warnings.append(
-            "No relevant ordinances were found in the current zoning source registry. Please contact the planning office."
+            (
+                "No relevant ordinances were returned by watsonx retrieval for this request. Please contact the planning office."
+                if watsonx_active
+                else "No relevant ordinances were found in the current zoning source registry. Please contact the planning office."
+            )
         )
 
     if intent.missing_fields:
@@ -580,7 +669,7 @@ def analyze_project(
         departments=["Planning", "Permitting", "Fire", "Health"] if citations else ["Planning", "Permitting"],
     )
 
-    deduped_follow_up = list(dict.fromkeys(follow_up))
+    deduped_follow_up = _dedupe_follow_up_questions(follow_up)
     agent_reports.append(
         AgentReport(
             key="compliance",

@@ -26,6 +26,7 @@ const DISCLAIMER =
 type Workspace = "assistant" | "admin";
 type Phase = "idle" | "intake" | "analyzing" | "done" | "error";
 type FeedbackState = "idle" | "submitting" | "submitted";
+type ResultView = "checklist" | "evidence" | "trace";
 
 function emptySourceForm(): SourceRegistryEntry {
   return {
@@ -142,6 +143,7 @@ export function App() {
   const [feedbackNote, setFeedbackNote] = useState("");
   const [feedbackState, setFeedbackState] = useState<FeedbackState>("idle");
   const [feedbackMessage, setFeedbackMessage] = useState("");
+  const [resultView, setResultView] = useState<ResultView>("checklist");
   const [clarificationOpen, setClarificationOpen] = useState(false);
   const [clarificationQuestions, setClarificationQuestions] = useState<FollowUpQuestion[]>([]);
   const [clarificationAnswers, setClarificationAnswers] = useState<Record<string, string>>({});
@@ -392,6 +394,7 @@ export function App() {
     setFeedbackNote("");
     setFeedbackState("idle");
     setFeedbackMessage("");
+    setResultView("checklist");
     setClarificationOpen(false);
     setClarificationQuestions([]);
     setClarificationAnswers({});
@@ -591,6 +594,7 @@ export function App() {
     setFeedbackNote("");
     setFeedbackState("idle");
     setFeedbackMessage("");
+    setResultView("checklist");
     setClarificationOpen(false);
     setClarificationQuestions([]);
     setClarificationAnswers({});
@@ -600,14 +604,14 @@ export function App() {
     result?.status === "low_confidence" || result?.feasibility.decision === "unknown";
 
   return (
-    <main className="min-h-screen bg-[linear-gradient(180deg,#f7f1e6_0%,#efe4d3_100%)] text-slate-900">
-      <div className="mx-auto max-w-7xl px-4 py-6 md:px-8 md:py-8">
-        <section className="mb-6 grid gap-4 rounded-[28px] border border-pine/10 bg-white/85 p-5 shadow-card backdrop-blur lg:grid-cols-[1.4fr_0.6fr]">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top,rgba(217,120,85,0.10),transparent_24%),linear-gradient(180deg,#f8f3ea_0%,#efe5d5_100%)] text-slate-900">
+      <div className="mx-auto max-w-6xl px-4 py-5 md:px-8 md:py-8">
+        <section className="mb-5 grid gap-5 rounded-[28px] border border-pine/10 bg-white/90 p-6 shadow-card backdrop-blur lg:grid-cols-[minmax(0,1.5fr)_320px]">
           <div>
             <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-500">
               IBMinds Zoning Agent
             </p>
-            <h1 className="mt-3 font-heading text-3xl leading-tight text-pine md:text-4xl">
+            <h1 className="mt-3 max-w-4xl font-heading text-3xl leading-tight text-pine md:text-[2.75rem]">
               Check whether a project is allowed on a property and get the next permit steps.
             </h1>
             <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-700 md:text-base">
@@ -617,8 +621,8 @@ export function App() {
             </p>
           </div>
 
-          <div className="flex flex-col gap-3">
-            <div className="rounded-3xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
+          <div className="flex flex-col justify-between gap-4">
+            <div className="rounded-3xl border border-amber-200 bg-amber-50/90 p-4 text-sm leading-6 text-amber-950">
               {DISCLAIMER}
             </div>
             <div className="flex gap-2">
@@ -649,9 +653,52 @@ export function App() {
         </section>
 
         {workspace === "assistant" ? (
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1.15fr)_360px]">
+          <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_300px]">
             <section className="space-y-6">
               <div className="rounded-[28px] border border-pine/10 bg-white p-6 shadow-card md:p-8">
+                <div className="mb-5 grid gap-4 rounded-3xl border border-slate-200 bg-slate-50/70 p-4 md:grid-cols-[minmax(0,1fr)_220px]">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                      Project Intake
+                    </p>
+                    <h2 className="mt-2 font-heading text-2xl text-pine">Tell us what you want to build</h2>
+                    <p className="mt-2 text-sm leading-6 text-slate-600">
+                      Start with the project and the parcel address. The system will validate the
+                      property, infer the likely zoning context, and run the three-agent review.
+                    </p>
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-3 md:grid-cols-1">
+                    <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Stage
+                      </p>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">
+                        {phase === "analyzing"
+                          ? "Analyzing"
+                          : phase === "intake"
+                            ? "Validating"
+                            : phase === "done"
+                              ? "Ready"
+                              : phase === "error"
+                                ? "Error"
+                                : "Waiting"}
+                      </p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Workflow
+                      </p>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">3 agents</p>
+                    </div>
+                    <div className="rounded-2xl border border-slate-200 bg-white p-3">
+                      <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-500">
+                        Registry
+                      </p>
+                      <p className="mt-2 text-sm font-semibold text-slate-900">{sources.length} sources</p>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="mb-5 flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50/80 p-4 text-sm text-slate-700">
                   <input
                     className="mt-1 h-4 w-4 accent-clay"
@@ -665,7 +712,7 @@ export function App() {
                 <label className="mb-4 block text-sm font-semibold text-slate-700">
                   Describe the project
                   <textarea
-                    className="mt-2 min-h-[180px] w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-clay focus:ring-2 focus:ring-clay"
+                    className="mt-2 min-h-[160px] w-full rounded-2xl border border-slate-300 bg-slate-50/50 px-4 py-3 text-sm outline-none transition focus:border-clay focus:ring-2 focus:ring-clay"
                     value={projectDescription}
                     onChange={(event) => setProjectDescription(event.target.value)}
                     placeholder="Example: Can I open a bakery out of my attached garage with two employees, weekday pickup hours, and limited interior renovation?"
@@ -678,7 +725,7 @@ export function App() {
                   </label>
                   <input
                     id="address"
-                    className="mt-2 w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-clay focus:ring-2 focus:ring-clay"
+                    className="mt-2 w-full rounded-2xl border border-slate-300 bg-slate-50/50 px-4 py-3 text-sm outline-none transition focus:border-clay focus:ring-2 focus:ring-clay"
                     value={address}
                     onChange={(event) => setAddress(event.target.value)}
                     onKeyDown={onAddressKeyDown}
@@ -757,13 +804,13 @@ export function App() {
                   </p>
                 </div>
 
-                <div className="mt-5 grid gap-4">
+                <div className="mt-5 grid gap-3">
                   {displayedAgents.map((agent, index) => {
                     const isActive = phase === "analyzing" && index === activeAgentIndex;
                     return (
                       <article
                         key={agent.key}
-                        className={`rounded-3xl border p-4 ${statusTone(agent.status, isActive)}`}
+                        className={`rounded-2xl border p-4 ${statusTone(agent.status, isActive)}`}
                       >
                         <div className="flex items-center justify-between gap-3">
                           <div>
@@ -775,7 +822,7 @@ export function App() {
                           </span>
                         </div>
                         {agent.details.length > 0 && (
-                          <ul className="mt-3 space-y-2 text-sm text-slate-600">
+                          <ul className="mt-3 space-y-1 text-sm text-slate-600">
                             {agent.details.map((detail) => (
                               <li key={detail}>{detail}</li>
                             ))}
@@ -789,12 +836,12 @@ export function App() {
 
               {result && (
                 <>
-                  <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
+                  <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_260px]">
                     <section className="rounded-[28px] border border-pine/10 bg-white p-6 shadow-card md:p-8">
                       <div className="flex flex-wrap items-start justify-between gap-4">
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                            Feasibility Dashboard
+                            Decision Center
                           </p>
                           <h2 className="mt-2 font-heading text-3xl text-pine">
                             {decisionLabel(result.feasibility.decision)}
@@ -838,7 +885,7 @@ export function App() {
 
                       {result.warnings.length > 0 && (
                         <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-                          {result.warnings.map((warning) => (
+                          {result.warnings.slice(0, 2).map((warning) => (
                             <p key={warning}>{warning}</p>
                           ))}
                         </div>
@@ -853,13 +900,12 @@ export function App() {
                       )}
                     </section>
 
-                    <section className="rounded-[28px] border border-pine/10 bg-white p-6 shadow-card">
+                    <section className="rounded-[28px] border border-pine/10 bg-slate-50/80 p-6 shadow-card">
                       <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                        Downloadable Checklist
+                        Next Move
                       </p>
                       <p className="mt-3 text-sm leading-6 text-slate-700">
-                        Save the current permit path, cited sources, and disclaimers as a plain-text
-                        checklist you can bring into the next planning conversation.
+                        Save the current permit path and bring it into the next planning conversation.
                       </p>
                       <button
                         type="button"
@@ -868,58 +914,160 @@ export function App() {
                       >
                         Download checklist
                       </button>
-                      <div className="mt-5 rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Address</p>
+                      <div className="mt-5 rounded-2xl border border-slate-200 bg-white p-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Permit path</p>
                         <p className="mt-2 text-sm font-semibold text-slate-900">
-                          {intake?.normalizedAddress ?? "Not available"}
+                          {result.checklist.steps.length} step{result.checklist.steps.length === 1 ? "" : "s"}
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-slate-600">
+                          {result.checklist.permits.length > 0
+                            ? result.checklist.permits.join(", ")
+                            : "No explicit permit names were returned."}
                         </p>
                       </div>
                     </section>
                   </div>
 
-                  <div className="grid gap-6 lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]">
+                  <div
+                    className={`grid gap-5 ${
+                      resultView === "checklist"
+                        ? ""
+                        : "lg:grid-cols-[minmax(0,1.05fr)_minmax(0,0.95fr)]"
+                    }`}
+                  >
                     <section className="rounded-[28px] border border-pine/10 bg-white p-6 shadow-card md:p-8">
-                      <div className="flex items-center justify-between gap-4">
+                      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                         <div>
                           <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                            Required Permit Steps
+                            Supporting Detail
                           </p>
-                          <h3 className="mt-2 font-heading text-2xl text-pine">Checklist</h3>
+                          <h3 className="mt-2 font-heading text-2xl text-pine">
+                            {resultView === "checklist"
+                              ? "Checklist"
+                              : resultView === "evidence"
+                                ? "Source References"
+                                : "Audit Trace"}
+                          </h3>
                         </div>
-                        <span className="rounded-full bg-mist px-3 py-1 text-xs font-semibold text-pine">
-                          {result.checklist.steps.length} steps
-                        </span>
+                        <div className="inline-flex w-full max-w-full overflow-x-auto rounded-2xl border border-slate-200 bg-slate-50 p-1 lg:w-auto">
+                          {[
+                            { key: "checklist", label: "Checklist" },
+                            { key: "evidence", label: "Evidence" },
+                            { key: "trace", label: "Trace" },
+                          ].map((view) => (
+                            <button
+                              key={view.key}
+                              type="button"
+                              onClick={() => setResultView(view.key as ResultView)}
+                              className={`rounded-xl px-4 py-2 text-sm font-semibold transition ${
+                                resultView === view.key
+                                  ? "bg-pine text-white shadow-sm"
+                                  : "text-slate-600 hover:text-slate-900"
+                              }`}
+                            >
+                              {view.label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
 
-                      <ol className="mt-5 space-y-4">
-                        {result.checklist.steps.map((step) => (
-                          <li key={step.order} className="rounded-3xl border border-slate-200 bg-slate-50 p-5">
-                            <div className="flex items-start gap-4">
-                              <span className="flex h-10 w-10 items-center justify-center rounded-full bg-pine text-sm font-bold text-white">
-                                {step.order}
-                              </span>
-                              <div className="min-w-0">
-                                <p className="font-semibold text-slate-900">{step.action}</p>
-                                <p className="mt-1 text-sm text-slate-600">{step.department}</p>
-                                <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                                  Required documents
+                      {resultView === "checklist" ? (
+                        <ol className="mt-6 space-y-4">
+                          {result.checklist.steps.map((step) => (
+                            <li
+                              key={step.order}
+                              className="rounded-[24px] border border-slate-200 bg-slate-50 p-5"
+                            >
+                              <div className="flex items-start gap-4">
+                                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-pine text-sm font-bold text-white">
+                                  {step.order}
+                                </span>
+                                <div className="min-w-0">
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <p className="text-lg font-semibold text-slate-900">{step.action}</p>
+                                    <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-500">
+                                      {step.department}
+                                    </span>
+                                  </div>
+                                  <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                                    Required documents
+                                  </p>
+                                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                                    {step.requiredDocs.join(", ")}
+                                  </p>
+                                </div>
+                              </div>
+                            </li>
+                          ))}
+                        </ol>
+                      ) : resultView === "evidence" ? (
+                        <div className="mt-6 grid gap-3">
+                          {result.citations.length > 0 ? (
+                            result.citations.map((citation) => (
+                              <article
+                                key={citation.sourceId}
+                                className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                              >
+                                <p className="font-semibold text-slate-900">{citation.title}</p>
+                                <p className="mt-1 text-xs uppercase tracking-[0.16em] text-slate-500">
+                                  {citation.sectionRef}
                                 </p>
-                                <p className="mt-2 text-sm leading-6 text-slate-700">
-                                  {step.requiredDocs.join(", ")}
+                                <p className="mt-3 text-sm leading-7 text-slate-700">
+                                  {citation.excerpt}
+                                </p>
+                                {citation.url && (
+                                  <a
+                                    className="mt-3 inline-flex text-sm font-semibold text-clay underline-offset-2 hover:underline"
+                                    href={citation.url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                  >
+                                    Open source reference
+                                  </a>
+                                )}
+                              </article>
+                            ))
+                          ) : (
+                            <div className="rounded-[24px] border border-slate-200 bg-slate-50 p-5 text-sm text-slate-600">
+                              No source excerpts were retrieved for this request.
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="mt-6 grid gap-3">
+                          {traceLoading ? (
+                            <p className="text-sm text-slate-600">Loading trace...</p>
+                          ) : trace.length > 0 ? (
+                            trace.map((event) => (
+                              <div
+                                key={`${event.stage}-${event.createdAt}`}
+                                className="rounded-2xl border border-slate-200 bg-slate-50 p-4"
+                              >
+                                <p className="font-semibold text-slate-900">
+                                  {event.stage.replaceAll(".", " / ")}
+                                </p>
+                                <p className="mt-1 text-xs text-slate-500">
+                                  {new Date(event.createdAt).toLocaleString()}
                                 </p>
                               </div>
-                            </div>
-                          </li>
-                        ))}
-                      </ol>
+                            ))
+                          ) : (
+                            <p className="text-sm text-slate-600">Trace events will appear here after a run.</p>
+                          )}
+                        </div>
+                      )}
                     </section>
 
-                    <div className="space-y-6">
-                      <section className="rounded-[28px] border border-pine/10 bg-white p-6 shadow-card md:p-8">
+                    <div className="hidden">
+                      <section
+                        className={`rounded-[28px] border border-pine/10 bg-white p-6 shadow-card md:p-8 ${
+                          resultView !== "evidence" ? "hidden" : ""
+                        }`}
+                      >
                         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
                           Source References
                         </p>
-                        <div className="mt-4 space-y-3">
+                      <div className="mt-4 grid gap-3">
                           {result.citations.length > 0 ? (
                             result.citations.map((citation) => (
                               <article
@@ -953,11 +1101,15 @@ export function App() {
                         </div>
                       </section>
 
-                      <section className="rounded-[28px] border border-pine/10 bg-white p-6 shadow-card md:p-8">
+                      <section
+                        className={`rounded-[28px] border border-pine/10 bg-white p-6 shadow-card md:p-8 ${
+                          resultView !== "trace" ? "hidden" : ""
+                        }`}
+                      >
                         <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
                           Audit Trace
                         </p>
-                        <div className="mt-4 space-y-3">
+                        <div className="mt-4 grid gap-3">
                           {traceLoading ? (
                             <p className="text-sm text-slate-600">Loading trace…</p>
                           ) : trace.length > 0 ? (
@@ -982,89 +1134,120 @@ export function App() {
                     </div>
                   </div>
 
-                  <div className="grid gap-6 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-                    <section className="rounded-[28px] border border-amber-200 bg-amber-50 p-6 shadow-card md:p-8">
-                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-amber-800">
-                        Legal Disclaimer
-                      </p>
-                      <ul className="mt-4 space-y-3 text-sm leading-6 text-amber-950">
-                        {result.disclaimers.map((disclaimer) => (
-                          <li key={disclaimer}>{disclaimer}</li>
-                        ))}
-                      </ul>
-                    </section>
-
-                    <section className="rounded-[28px] border border-pine/10 bg-white p-6 shadow-card md:p-8">
-                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                        Workflow Feedback
-                      </p>
-                      <p className="mt-3 text-sm leading-6 text-slate-700">
-                        Let us know whether the zoning result and checklist were useful.
-                      </p>
-                      <textarea
-                        className="mt-4 min-h-[120px] w-full rounded-2xl border border-slate-300 px-4 py-3 text-sm outline-none transition focus:border-clay focus:ring-2 focus:ring-clay"
-                        value={feedbackNote}
-                        onChange={(event) => setFeedbackNote(event.target.value)}
-                        placeholder="What was clear, missing, or confusing?"
-                      />
-                      <div className="mt-4 flex gap-3">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void onSubmitFeedback(true);
-                          }}
-                          disabled={feedbackState === "submitting"}
-                          className="rounded-2xl bg-pine px-4 py-3 font-semibold text-white disabled:opacity-60"
-                        >
-                          Helpful
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            void onSubmitFeedback(false);
-                          }}
-                          disabled={feedbackState === "submitting"}
-                          className="rounded-2xl border border-slate-300 px-4 py-3 font-semibold text-slate-700 disabled:opacity-60"
-                        >
-                          Needs work
-                        </button>
+                  <section className="rounded-[28px] border border-pine/10 bg-white p-6 shadow-card md:p-8">
+                    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_220px]">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
+                          Workflow Feedback
+                        </p>
+                        <p className="mt-3 text-sm leading-6 text-slate-700">
+                          Tell us whether this result felt clear enough to act on, and where the
+                          structure or explanation still needs work.
+                        </p>
+                        <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-amber-800">
+                            Legal reminder
+                          </p>
+                          <ul className="mt-3 space-y-3 text-sm leading-6 text-amber-950">
+                            {result.disclaimers.map((disclaimer) => (
+                              <li key={disclaimer}>{disclaimer}</li>
+                            ))}
+                          </ul>
+                        </div>
+                        <textarea
+                          className="mt-4 min-h-[120px] w-full rounded-2xl border border-slate-300 bg-slate-50/60 px-4 py-3 text-sm outline-none transition focus:border-clay focus:ring-2 focus:ring-clay"
+                          value={feedbackNote}
+                          onChange={(event) => setFeedbackNote(event.target.value)}
+                          placeholder="What was clear, missing, or confusing?"
+                        />
                       </div>
-                      {feedbackMessage && (
-                        <p className="mt-4 text-sm text-slate-700">{feedbackMessage}</p>
-                      )}
-                    </section>
-                  </div>
+
+                      <div className="flex flex-col justify-between gap-4">
+                        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+                          Use this note box for missing citations, unclear checklist steps, or anything
+                          that made the answer harder to trust.
+                        </div>
+                        <div className="flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void onSubmitFeedback(true);
+                            }}
+                            disabled={feedbackState === "submitting"}
+                            className="rounded-2xl bg-pine px-4 py-3 font-semibold text-white disabled:opacity-60"
+                          >
+                            Helpful
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              void onSubmitFeedback(false);
+                            }}
+                            disabled={feedbackState === "submitting"}
+                            className="rounded-2xl border border-slate-300 px-4 py-3 font-semibold text-slate-700 disabled:opacity-60"
+                          >
+                            Needs work
+                          </button>
+                        </div>
+                        {feedbackMessage && <p className="text-sm text-slate-700">{feedbackMessage}</p>}
+                      </div>
+                    </div>
+                  </section>
                 </>
               )}
             </section>
 
-            <aside className="space-y-6">
+            <aside className="space-y-5 xl:sticky xl:top-5 xl:self-start">
               <section className="rounded-[28px] border border-pine/10 bg-white p-6 shadow-card">
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Project Context
+                  Case Snapshot
                 </p>
                 {intake ? (
-                  <div className="mt-4 space-y-4 text-sm text-slate-700">
+                  <div className="mt-4 space-y-3 text-sm text-slate-700">
+                    {result && (
+                      <button
+                        type="button"
+                        onClick={downloadChecklist}
+                        className="w-full rounded-2xl bg-pine px-4 py-3 text-sm font-semibold text-white"
+                      >
+                        Download checklist
+                      </button>
+                    )}
                     <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
                       <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
                         Normalized address
                       </p>
                       <p className="mt-2 font-semibold text-slate-900">{intake.normalizedAddress}</p>
                     </div>
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">District</p>
-                      <p className="mt-2 font-semibold text-slate-900">
-                        {intake.district.replace(/-/g, " ")}
-                      </p>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">District</p>
+                        <p className="mt-2 font-semibold text-slate-900">
+                          {intake.district.replace(/-/g, " ")}
+                        </p>
+                      </div>
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Coordinates</p>
+                        <p className="mt-2 font-semibold text-slate-900">
+                          {intake.latitude != null && intake.longitude != null
+                            ? `${intake.latitude.toFixed(4)}, ${intake.longitude.toFixed(4)}`
+                            : "Unavailable"}
+                        </p>
+                      </div>
                     </div>
-                    <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Coordinates</p>
-                      <p className="mt-2 font-semibold text-slate-900">
-                        {intake.latitude != null && intake.longitude != null
-                          ? `${intake.latitude.toFixed(4)}, ${intake.longitude.toFixed(4)}`
-                          : "Unavailable"}
-                      </p>
-                    </div>
+                    {result && (
+                      <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+                        <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Decision</p>
+                        <div className="mt-2 flex items-center justify-between gap-3">
+                          <p className="font-semibold text-slate-900">
+                            {decisionLabel(result.feasibility.decision)}
+                          </p>
+                          <span className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-slate-600">
+                            {(result.feasibility.confidence * 100).toFixed(0)}%
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : (
                   <p className="mt-4 text-sm leading-6 text-slate-600">
@@ -1075,7 +1258,7 @@ export function App() {
 
               <section className="rounded-[28px] border border-pine/10 bg-white p-6 shadow-card">
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-500">
-                  Clarifications
+                  Review Signals
                 </p>
                 <div className="mt-4 space-y-3">
                   {assistantPrompts.length > 0 ? (
