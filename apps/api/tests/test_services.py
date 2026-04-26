@@ -17,11 +17,11 @@ def test_normalize_address_success(monkeypatch: pytest.MonkeyPatch) -> None:
         "status": "OK",
         "candidates": [
             {
-                "formatted_address": "123 Main St, Springfield, US",
+                "formatted_address": "300 Turner St NW, Blacksburg, VA 24060, USA",
                 "place_id": "place-123",
                 "address_components": [
                     {"long_name": "Downtown", "types": ["sublocality_level_1"]},
-                    {"long_name": "Springfield", "types": ["locality"]},
+                    {"long_name": "Blacksburg", "types": ["locality"]},
                 ],
                 "geometry": {"location": {"lat": 40.1, "lng": -74.5}},
             }
@@ -32,10 +32,11 @@ def test_normalize_address_success(monkeypatch: pytest.MonkeyPatch) -> None:
         "status": "OK",
         "results": [
             {
-                "formatted_address": "123 Main St, Springfield, US",
+                "formatted_address": "300 Turner St NW, Blacksburg, VA 24060, USA",
                 "place_id": "place-123",
                 "address_components": [
-                    {"long_name": "Downtown", "types": ["sublocality_level_1"]}
+                    {"long_name": "Downtown", "types": ["sublocality_level_1"]},
+                    {"long_name": "Blacksburg", "types": ["locality"]},
                 ],
                 "geometry": {"location": {"lat": 40.1, "lng": -74.5}},
             }
@@ -59,10 +60,10 @@ def test_normalize_address_success(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(services.httpx, "get", fake_get)
 
-    result = services.normalize_address("123 Main St Springfield")
+    result = services.normalize_address("300 Turner St NW Blacksburg")
 
     assert result.is_valid is True
-    assert result.normalized_address == "123 Main St, Springfield, US"
+    assert result.normalized_address == "300 Turner St NW, Blacksburg, VA 24060, USA"
     assert result.place_id == "place-123"
     assert result.latitude == 40.1
     assert result.longitude == -74.5
@@ -108,6 +109,18 @@ def test_analyze_project_watsonx_success_override(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(services, "is_watsonx_enabled", lambda: True)
     monkeypatch.setattr(
         services,
+        "retrieve_zoning_context",
+        lambda **_: [
+            services.SourceCitation(
+                source_id="wx-1",
+                title="Blacksburg Ordinance",
+                excerpt="Home occupation bakeries require review in mixed-use-core.",
+                section_ref="Sec 10.1",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        services,
         "generate_watsonx_analysis",
         lambda **_: {
             "decision": "restricted",
@@ -130,6 +143,18 @@ def test_analyze_project_watsonx_success_override(monkeypatch: pytest.MonkeyPatc
 
 def test_analyze_project_watsonx_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(services, "is_watsonx_enabled", lambda: True)
+    monkeypatch.setattr(
+        services,
+        "retrieve_zoning_context",
+        lambda **_: [
+            services.SourceCitation(
+                source_id="wx-1",
+                title="Blacksburg Ordinance",
+                excerpt="Home occupation bakeries require review in mixed-use-core.",
+                section_ref="Sec 10.1",
+            )
+        ],
+    )
 
     def _raise_error(**_):
         raise RuntimeError("watsonx unavailable")
@@ -142,7 +167,25 @@ def test_analyze_project_watsonx_fallback(monkeypatch: pytest.MonkeyPatch) -> No
     )
 
     assert result.feasibility.decision in {"conditional", "likely_allowed", "unknown"}
-    assert any("watsonx fallback engaged" in warning for warning in result.warnings)
+    assert any("watsonx analysis fallback engaged" in warning for warning in result.warnings)
+
+
+def test_dedupe_follow_up_questions_prefers_specific_prompt() -> None:
+    deduped = services._dedupe_follow_up_questions(
+        [
+            "What are the proposed operating hours of the office?",
+            "Please provide operating hours.",
+            "What is the scope of any construction or renovations planned for the property?",
+            "Please provide construction scope.",
+            "Please provide number of employees.",
+        ]
+    )
+
+    assert "What are the proposed operating hours of the office?" in deduped
+    assert "What is the scope of any construction or renovations planned for the property?" in deduped
+    assert "Please provide operating hours." not in deduped
+    assert "Please provide construction scope." not in deduped
+    assert "Please provide number of employees." in deduped
 
 
 def test_parse_source_file_from_markdown() -> None:

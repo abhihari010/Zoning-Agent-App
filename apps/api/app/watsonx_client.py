@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from typing import Any
 
 import httpx
@@ -25,19 +26,83 @@ def _watsonx_timeout() -> float:
     return float(os.getenv("WATSONX_TIMEOUT_SECONDS", "20"))
 
 
+def _watsonx_max_attempts() -> int:
+    return max(1, int(os.getenv("WATSONX_MAX_ATTEMPTS", "3")))
+
+
+def _watsonx_retry_delay_seconds() -> float:
+    return max(0.0, float(os.getenv("WATSONX_RETRY_DELAY_SECONDS", "0.6")))
+
+
+def _should_retry_status(status_code: int) -> bool:
+    return status_code in {408, 409, 425, 429, 500, 502, 503, 504}
+
+
+def _sleep_before_retry(attempt: int, max_attempts: int) -> None:
+    if attempt >= max_attempts:
+        return
+    delay = _watsonx_retry_delay_seconds() * attempt
+    if delay > 0:
+        time.sleep(delay)
+
+
+def _post_with_retry(
+    url: str,
+    *,
+    timeout_seconds: float,
+    error_label: str,
+    **request_kwargs: Any,
+) -> httpx.Response:
+    max_attempts = _watsonx_max_attempts()
+    last_error: RuntimeError | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = httpx.post(url, timeout=timeout_seconds, **request_kwargs)
+            if _should_retry_status(response.status_code):
+                last_error = RuntimeError(
+                    f"{error_label} returned HTTP {response.status_code} on attempt {attempt}/{max_attempts}."
+                )
+                _sleep_before_retry(attempt, max_attempts)
+                continue
+
+            response.raise_for_status()
+            return response
+        except httpx.TimeoutException as exc:
+            last_error = RuntimeError(
+                f"{error_label} timed out on attempt {attempt}/{max_attempts} after {timeout_seconds:.0f}s."
+            )
+        except httpx.TransportError as exc:
+            last_error = RuntimeError(
+                f"{error_label} transport error on attempt {attempt}/{max_attempts}: {exc}"
+            )
+        except httpx.HTTPStatusError as exc:
+            status_code = exc.response.status_code
+            if not _should_retry_status(status_code):
+                raise RuntimeError(f"{error_label} failed with HTTP {status_code}.") from exc
+            last_error = RuntimeError(
+                f"{error_label} returned HTTP {status_code} on attempt {attempt}/{max_attempts}."
+            )
+
+        _sleep_before_retry(attempt, max_attempts)
+
+    assert last_error is not None
+    raise last_error
+
+
 def _get_iam_token(api_key: str, timeout_seconds: float) -> str:
     # IBM displays keys as "ApiKey-<value>" — IAM endpoint wants only the value part
     clean_key = api_key.removeprefix("ApiKey-")
-    response = httpx.post(
+    response = _post_with_retry(
         "https://iam.cloud.ibm.com/identity/token",
+        timeout_seconds=timeout_seconds,
+        error_label="watsonx IAM token request",
         data={
             "grant_type": "urn:ibm:params:oauth:grant-type:apikey",
             "apikey": clean_key,
         },
         headers={"Content-Type": "application/x-www-form-urlencoded"},
-        timeout=timeout_seconds,
     )
-    response.raise_for_status()
     payload = response.json()
     token = payload.get("access_token")
     if not token:
@@ -69,8 +134,10 @@ def search_ordinances(query: str) -> list[dict[str, str]]:
 
     token = _get_iam_token(api_key=api_key, timeout_seconds=timeout_seconds)
 
-    response = httpx.post(
+    response = _post_with_retry(
         f"{platform_url}/wx/v1-beta/utility_agent_tools/run",
+        timeout_seconds=timeout_seconds,
+        error_label="watsonx ordinance retrieval",
         headers={
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
@@ -83,9 +150,7 @@ def search_ordinances(query: str) -> list[dict[str, str]]:
                 "projectId": project_id,
             },
         },
-        timeout=timeout_seconds,
     )
-    response.raise_for_status()
     payload = response.json()
 
     raw_output = payload.get("output", "")
@@ -162,8 +227,10 @@ def generate_watsonx_analysis(
         f"Relevant Blacksburg ordinance excerpts:\n{citations_block}"
     )
 
-    response = httpx.post(
+    response = _post_with_retry(
         f"{watsonx_url}/ml/v1/text/chat",
+        timeout_seconds=timeout_seconds,
+        error_label="watsonx analysis request",
         params={"version": WATSONX_API_VERSION},
         headers={
             "Authorization": f"Bearer {token}",
@@ -182,9 +249,7 @@ def generate_watsonx_analysis(
                 "min_new_tokens": 80,
             },
         },
-        timeout=timeout_seconds,
     )
-    response.raise_for_status()
     payload = response.json()
 
     generated_text = ""
