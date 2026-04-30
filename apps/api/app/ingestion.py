@@ -7,7 +7,14 @@ from pathlib import Path
 from app.models import SourceRegistryEntry
 
 
-DEFAULT_INGESTION_DOCS_PATH = Path(__file__).resolve().parents[3] / "services" / "ingestion" / "documents"
+def _resolve_default_docs_path() -> Path:
+    here = Path(__file__).resolve()
+    if len(here.parents) >= 4:
+        return here.parents[3] / "services" / "ingestion" / "documents"
+    return here.parent / "data" / "documents"
+
+
+DEFAULT_INGESTION_DOCS_PATH = _resolve_default_docs_path()
 SUPPORTED_FILE_SUFFIXES = {".md", ".txt", ".json"}
 
 
