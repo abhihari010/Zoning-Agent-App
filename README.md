@@ -89,3 +89,25 @@ Run backend tests:
 - `pytest -q`
 
 Frontend expects backend at `http://localhost:8000`.
+
+## Deploy Web to Vercel
+
+This repo includes a root `vercel.json` for the Vite frontend:
+
+- Build command: `npm run build:web`
+- Output directory: `apps/web/dist`
+- Install command: `npm install`
+
+Production builds use the Hugging Face Space backend by default:
+
+- `https://advaithmalka-zoning-agent-api.hf.space`
+
+You can override that in Vercel with:
+
+- `VITE_API_URL=https://advaithmalka-zoning-agent-api.hf.space`
+
+To avoid browser CORS failures, set this variable in the Hugging Face Space after Vercel gives you a deployment URL:
+
+- `CORS_ALLOW_ORIGINS=https://your-vercel-project.vercel.app`
+
+For a quick smoke test, the Space can temporarily use `CORS_ALLOW_ORIGINS=*`, but the deployed app should use the exact Vercel origin.

@@ -4,7 +4,11 @@ import type {
   FollowUpQuestion,
 } from "@ibm-zoning/shared-schema";
 
-const API_BASE = `${(import.meta.env.VITE_API_URL ?? "http://localhost:8000").replace(/\/$/, "")}/api/v1`;
+const DEFAULT_API_URL = import.meta.env.PROD
+  ? "https://advaithmalka-zoning-agent-api.hf.space"
+  : "http://localhost:8000";
+
+const API_BASE = `${(import.meta.env.VITE_API_URL ?? DEFAULT_API_URL).replace(/\/$/, "")}/api/v1`;
 
 export interface IntakeResponse {
   projectId: string;
