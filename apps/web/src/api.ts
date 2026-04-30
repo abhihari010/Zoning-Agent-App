@@ -4,7 +4,7 @@ import type {
   FollowUpQuestion,
 } from "@ibm-zoning/shared-schema";
 
-const API_BASE = "http://localhost:8000/api/v1";
+const API_BASE = `${(import.meta.env.VITE_API_URL ?? "http://localhost:8000").replace(/\/$/, "")}/api/v1`;
 
 export interface IntakeResponse {
   projectId: string;

@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -18,10 +19,21 @@ from app.routers.api import router as api_router
 
 app = FastAPI(title="IBM Zoning API", version="0.1.0")
 
+_cors_origins_env = os.getenv("CORS_ALLOW_ORIGINS", "").strip()
+if _cors_origins_env == "*":
+    _allow_origins = ["*"]
+    _allow_credentials = False
+elif _cors_origins_env:
+    _allow_origins = [origin.strip() for origin in _cors_origins_env.split(",") if origin.strip()]
+    _allow_credentials = True
+else:
+    _allow_origins = ["http://localhost:5173"]
+    _allow_credentials = True
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
+    allow_origins=_allow_origins,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
