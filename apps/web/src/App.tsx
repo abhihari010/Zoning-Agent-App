@@ -732,31 +732,35 @@ export function App() {
                     placeholder="123 Main St, Blacksburg, VA"
                     autoComplete="off"
                   />
+
+                  {suggestionLoading && (
+                    <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
+                      Looking up addresses
+                    </p>
+                  )}
+
+                  {suggestions.length > 0 && (
+                    <ul className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
+                      {suggestions.map((option, index) => (
+                        <li key={`${option}-${index}`} className="border-b border-slate-200 last:border-b-0">
+                          <button
+                            type="button"
+                            onMouseDown={(event) => {
+                              event.preventDefault();
+                              selectSuggestion(option);
+                            }}
+                            onClick={() => selectSuggestion(option)}
+                            className={`w-full px-4 py-3 text-left text-sm ${
+                              index === activeSuggestionIndex ? "bg-amber-100" : "bg-transparent"
+                            }`}
+                          >
+                            {option}
+                          </button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </div>
-
-                {suggestionLoading && (
-                  <p className="mt-3 text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
-                    Looking up addresses
-                  </p>
-                )}
-
-                {suggestions.length > 0 && (
-                  <ul className="mt-3 overflow-hidden rounded-2xl border border-slate-200 bg-slate-50">
-                    {suggestions.map((option, index) => (
-                      <li key={`${option}-${index}`} className="border-b border-slate-200 last:border-b-0">
-                        <button
-                          type="button"
-                          onClick={() => selectSuggestion(option)}
-                          className={`w-full px-4 py-3 text-left text-sm ${
-                            index === activeSuggestionIndex ? "bg-amber-100" : "bg-transparent"
-                          }`}
-                        >
-                          {option}
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
 
                 <div className="mt-6 flex flex-col gap-3 sm:flex-row">
                   <button
